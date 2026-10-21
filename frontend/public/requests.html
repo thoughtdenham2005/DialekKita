@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DialekKita Helpdesk Requests</title>
+<style>
+  :root { --ink:#1b1b1b; --muted:#6b7280; --line:#e2e6ec; --accent:#d7192a; --bg:#ffffff; --soft:#f4f6f9; }
+  body { margin:0; font-family: Arial, Helvetica, sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  h1 { margin:0; font-size:20px; }
+  .sub { color:var(--muted); font-size:13px; }
+  main { padding:16px 20px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:var(--soft); font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .bm { font-weight:bold; }
+  .orig { color:var(--muted); font-style:italic; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; background:#fdecec; color:var(--accent); font-weight:bold; }
+  .empty { color:var(--muted); padding:24px 0; }
+  button { font: inherit; padding:6px 12px; border:1px solid var(--line); background:var(--soft); border-radius:6px; cursor:pointer; }
+  @media (max-width: 640px) { .hide-sm { display:none; } th, td { padding:8px 4px; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Helpdesk Requests</h1>
+    <div class="sub">Logged at the DialekKita counter kiosk · stored on this device only</div>
+  </div>
+  <button id="refresh">Refresh</button>
+</header>
+<main>
+  <table>
+    <thead><tr><th>#</th><th>Request (standard BM)</th><th class="hide-sm">Resident said</th><th class="hide-sm">Language</th><th>Time</th><th>Status</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="empty" class="empty" hidden>No requests logged yet.</div>
+</main>
+<script>
+  function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+  async function load() {
+    const rows = document.getElementById("rows");
+    try {
+      const res = await fetch("/api/requests");
+      const data = (await res.json()).slice().reverse();
+      document.getElementById("empty").hidden = data.length > 0;
+      rows.innerHTML = data.map(r => `
+        <tr>
+          <td>${esc(r.id)}</td>
+          <td class="bm">${esc(r.standard_malay || r.translation)}</td>
+          <td class="orig hide-sm">${esc(r.original_text)}</td>
+          <td class="hide-sm">${esc(r.source_language)}</td>
+          <td>${esc((r.created_at || "").replace("T", " "))}</td>
+          <td><span class="badge">${esc(r.status)}</span></td>
+        </tr>`).join("");
+    } catch (e) {
+      rows.innerHTML = `<tr><td colspan="6">Could not reach the kiosk backend.</td></tr>`;
+    }
+  }
+  document.getElementById("refresh").onclick = load;
+  load();
+  setInterval(load, 10000);
+</script>
+</body>
+</html>

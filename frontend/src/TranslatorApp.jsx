@@ -1,0 +1,445 @@
+/**
+ * Copyright 2026 Google LLC
+ * Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import React, { useState, useEffect, useRef, useCallback } from "react"
+import LanguageLane from "./components/LanguageLane"
+import ResponseDrawer from "./components/ResponseDrawer"
+import Visualizer from "./components/Visualizer"
+import { useAudioRecorder } from "./hooks/useAudioRecorder"
+import {
+  transcribeAudio,
+  translateText,
+  splitTextIntoSpeechChunks,
+  logRequest,
+} from "./utils/api"
+import { playBlip } from "./utils/audio-blip"
+import TypeBar from "./components/TypeBar"
+import {
+  AVAILABLE_LANGUAGES,
+  DEFAULT_LANE_1,
+  DEFAULT_LANE_2,
+  buildTranslationPrompt,
+} from "./dialect/languages"
+
+// Core orchestrator for the two-person kiosk translator.
+// Flow: hold a key → record mic (useAudioRecorder) → POST /api/stt (Moonshine)
+// → LLM translation via /proxy (Gemma, strict-JSON prompt) → /api/tts playback.
+
+// DialekKita: languages (incl. Malaysian dialects) live in ./dialect/languages.js
+
+function TranslatorApp({ config }) {
+  // UI State
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [activePerson, setActivePerson] = useState(1)
+
+  // Translation State
+  const [transcriptionData, setTranscriptionData] = useState({
+    source: "",
+    text: "— listening —",
+  })
+  const [translationData, setTranslationData] = useState({
+    target: "",
+    text: "— waiting —",
+  })
+  const [metaText, setMetaText] = useState("")
+
+  // DialekKita: last completed exchange (for "log request") and type-to-text bar
+  const [lastExchange, setLastExchange] = useState(null)
+  const [logStatus, setLogStatus] = useState("")
+  const [showTypeBar, setShowTypeBar] = useState(false)
+
+  // Currently-playing TTS audio element (chunked playback chain)
+  const onlineAudioPlayerRef = useRef(null)
+
+  // Language Lanes State
+  const [lang1Index, setLang1Index] = useState(DEFAULT_LANE_1)
+  const [lang2Index, setLang2Index] = useState(DEFAULT_LANE_2)
+  const [activeLaneRecording, setActiveLaneRecording] = useState(null) // 1 or 2
+
+  const { isRecording, startRecording, stopRecording, analyser, micError } =
+    useAudioRecorder()
+
+  useEffect(() => {
+    if (micError) {
+      setIsDrawerOpen(true)
+      setTranscriptionData({ source: "Microphone", text: "Access Failed" })
+      setTranslationData({
+        target: "Error",
+        text: `${micError} (HTTPS is required when accessing from remote devices)`,
+      })
+    }
+  }, [micError])
+
+  const stopSpeaking = useCallback(() => {
+    if (onlineAudioPlayerRef.current) {
+      onlineAudioPlayerRef.current.pause()
+      onlineAudioPlayerRef.current = null
+    }
+  }, [])
+
+  // Speak text via /api/tts, splitting into ~180-char chunks and chaining
+  // playback so long translations don't overflow a single TTS request.
+  const playTTS = useCallback(
+    (text, targetLang) => {
+      if (!text) return
+      stopSpeaking()
+
+      const chunks = splitTextIntoSpeechChunks(text)
+      if (chunks.length === 0) return
+
+      let chunkIndex = 0
+
+      const playNextChunk = () => {
+        if (chunkIndex >= chunks.length) {
+          stopSpeaking()
+          return
+        }
+        const ttsUrl = `/api/tts?text=${encodeURIComponent(chunks[chunkIndex])}&lang=${encodeURIComponent(targetLang)}`
+        const player = new Audio(ttsUrl)
+        player.volume = 1.0
+        onlineAudioPlayerRef.current = player
+
+        player.onended = () => {
+          chunkIndex++
+          playNextChunk()
+        }
+        player.onerror = () => {
+          stopSpeaking()
+          alert("TTS playback failed. Backend server may be offline.")
+        }
+        player.play().catch((e) => {
+          console.error("Audio play error:", e)
+          stopSpeaking()
+        })
+      }
+
+      playNextChunk()
+    },
+    [stopSpeaking],
+  )
+
+  // Rotate a lane's language, skipping the slot held by the other lane
+  // (the two lanes may never show the same language).
+  const handleRotateLanguage = useCallback(
+    (lane, direction) => {
+      if (isRecording) return
+      const N = AVAILABLE_LANGUAGES.length
+
+      playBlip("language")
+
+      if (lane === 1) {
+        let ni = (lang1Index + direction + N) % N
+        if (ni === lang2Index) ni = (ni + direction + N) % N
+        setLang1Index(ni)
+      } else {
+        let ni = (lang2Index + direction + N) % N
+        if (ni === lang1Index) ni = (ni + direction + N) % N
+        setLang2Index(ni)
+      }
+    },
+    [lang1Index, lang2Index, isRecording],
+  )
+
+  // Recording triggers
+  const handleRecordStart = useCallback(
+    async (lane) => {
+      if (isRecording) return
+      stopSpeaking()
+
+      setActivePerson((prev) => {
+        if (prev !== lane) playBlip("speaker")
+        return lane
+      })
+      setActiveLaneRecording(lane)
+      playBlip("ping")
+
+      const ok = await startRecording()
+      if (!ok) {
+        setActiveLaneRecording(null)
+      }
+    },
+    [isRecording, stopSpeaking, startRecording],
+  )
+
+  const handleRecordStop = useCallback(async () => {
+    if (!isRecording) return
+
+    const recordedLane = activeLaneRecording
+    setActiveLaneRecording(null)
+    const audioData = await stopRecording()
+
+    if (audioData) {
+      processTranslation(recordedLane, { base64Data: audioData.base64Data })
+    }
+  }, [isRecording, activeLaneRecording, stopRecording])
+
+  // Translation Pipeline
+  // input: { base64Data } for voice, or { text } for the type-to-text fallback
+  const processTranslation = async (lane, input) => {
+    setIsDrawerOpen(true)
+    setLogStatus("")
+    setLastExchange(null)
+
+    const src =
+      lane === 1
+        ? AVAILABLE_LANGUAGES[lang1Index]
+        : AVAILABLE_LANGUAGES[lang2Index]
+    const dst =
+      lane === 1
+        ? AVAILABLE_LANGUAGES[lang2Index]
+        : AVAILABLE_LANGUAGES[lang1Index]
+
+    setTranscriptionData({
+      source: `${src.name} (Source)`,
+      text: input.text ? input.text : "Analyzing voice input...",
+    })
+    setTranslationData({
+      target: `${dst.name} (Translation)`,
+      text: "Translating...",
+    })
+    setMetaText("")
+
+    try {
+      // 1. Transcription (skipped when the person typed instead of speaking)
+      let transcribedText = input.text || ""
+      if (!input.text) {
+        setTranscriptionData((prev) => ({ ...prev, text: "Listening..." }))
+        transcribedText = await transcribeAudio(input.base64Data, src.sttLang)
+      }
+      setTranscriptionData((prev) => ({ ...prev, text: transcribedText }))
+
+      if (!transcribedText.trim()) {
+        setTranslationData((prev) => ({
+          ...prev,
+          text: "(No speech detected)",
+        }))
+        return
+      }
+
+      // 2. Translation
+      const result = await translateText(transcribedText, {
+        ...config,
+        modelName: config.modelName,
+        systemPrompt: buildTranslationPrompt(src, dst),
+      })
+
+      setTranslationData((prev) => ({ ...prev, text: result.translation }))
+      const showBM =
+        result.standardMalay && (src.dialect || dst.dialect) && dst.code !== "ms"
+      setMetaText(
+        (showBM ? `BM: ${result.standardMalay} | ` : "") +
+          `${result.duration}s | Offline`,
+      )
+      setLastExchange({
+        lane,
+        source_language: src.name,
+        target_language: dst.name,
+        original_text: transcribedText,
+        standard_malay: result.standardMalay || "",
+        translation: result.translation,
+      })
+
+      if (config.enableTts) {
+        playTTS(result.translation, dst.ttsLang)
+      }
+    } catch (err) {
+      console.error(err)
+      setTranscriptionData((prev) => ({
+        ...prev,
+        text: prev.text === "Listening..." ? "(Transcription failed)" : prev.text,
+      }))
+      setTranslationData((prev) => ({ ...prev, text: `Error: ${err.message}` }))
+    }
+  }
+
+  // Push-to-talk keyboard control (two modes, see README):
+  // landscape = one "active person" driven by Space/Z/arrows;
+  // vertical   = independent per-lane keys (Z/X for record, arrows and -/+).
+  // keydown starts recording, keyup stops — e.repeat guards auto-repeat.
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return
+      const key = e.key.toLowerCase()
+
+      // DialekKita: T opens the type-to-text bar, L logs the last request
+      if (key === "t" && !isRecording) {
+        e.preventDefault()
+        setShowTypeBar(true)
+        return
+      }
+      if (key === "l" && !isRecording) {
+        e.preventDefault()
+        handleLogRequest()
+        return
+      }
+
+      if (config.keyboardMode === "landscape") {
+        if (key === " " || e.key === "Spacebar") {
+          e.preventDefault()
+          if (!isRecording) {
+            playBlip("speaker")
+            setActivePerson((p) => (p === 1 ? 2 : 1))
+          }
+        } else if (key === "z") {
+          e.preventDefault()
+          if (!e.repeat && !isRecording) handleRecordStart(activePerson)
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault()
+          handleRotateLanguage(activePerson, -1)
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault()
+          handleRotateLanguage(activePerson, 1)
+        }
+      } else {
+        if (key === "z") {
+          e.preventDefault()
+          if (!e.repeat && !isRecording) handleRecordStart(1)
+        } else if (key === "x") {
+          e.preventDefault()
+          if (!e.repeat && !isRecording) handleRecordStart(2)
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault()
+          handleRotateLanguage(1, -1)
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault()
+          handleRotateLanguage(1, 1)
+        } else if (key === "-" || key === "_") {
+          e.preventDefault()
+          handleRotateLanguage(2, -1)
+        } else if (key === "+" || key === "=") {
+          e.preventDefault()
+          handleRotateLanguage(2, 1)
+        }
+      }
+    }
+
+    const handleKeyUp = (e) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return
+      const key = e.key.toLowerCase()
+
+      if (config.keyboardMode === "landscape") {
+        if (key === "z" && isRecording) handleRecordStop()
+      } else {
+        if (key === "z" && activeLaneRecording === 1) handleRecordStop()
+        if (key === "x" && activeLaneRecording === 2) handleRecordStop()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
+    }
+  }, [
+    config.keyboardMode,
+    isRecording,
+    activePerson,
+    activeLaneRecording,
+    handleRecordStart,
+    handleRecordStop,
+    handleRotateLanguage,
+    lastExchange,
+  ])
+
+  // DialekKita: send the understood request to the local helpdesk queue
+  async function handleLogRequest() {
+    if (!lastExchange) {
+      setLogStatus("Nothing to log yet")
+      return
+    }
+    try {
+      setLogStatus("Logging...")
+      const res = await logRequest(lastExchange)
+      setLogStatus(`Logged as request #${res.id}`)
+      playBlip("ping")
+    } catch (err) {
+      setLogStatus(`Log failed: ${err.message}`)
+    }
+  }
+
+  return (
+    <div className="translator-envelope">
+      <ResponseDrawer
+        isActive={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        transcriptionSource={transcriptionData.source}
+        transcriptionText={transcriptionData.text}
+        translationTarget={translationData.target}
+        translationText={translationData.text}
+        metaText={metaText}
+        canLog={!!lastExchange}
+        logStatus={logStatus}
+        onLogRequest={handleLogRequest}
+      />
+
+      {showTypeBar && (
+        <TypeBar
+          laneName={
+            (activePerson === 1
+              ? AVAILABLE_LANGUAGES[lang1Index]
+              : AVAILABLE_LANGUAGES[lang2Index]
+            ).name
+          }
+          personLabel={activePerson}
+          onSubmit={(text) => {
+            setShowTypeBar(false)
+            processTranslation(activePerson, { text })
+          }}
+          onSwitchPerson={() => setActivePerson((p) => (p === 1 ? 2 : 1))}
+          onClose={() => setShowTypeBar(false)}
+        />
+      )}
+
+      <main className="translator-workspace">
+        <div className="languages-container">
+          <LanguageLane
+            laneId={1}
+            laneLabel="1"
+            languages={AVAILABLE_LANGUAGES}
+            currentIndex={lang1Index}
+            isRecording={activeLaneRecording === 1}
+            isActivePerson={
+              config.keyboardMode === "landscape" && activePerson === 1
+            }
+            onRotate={(dir) => handleRotateLanguage(1, dir)}
+          />
+          <LanguageLane
+            laneId={2}
+            laneLabel="2"
+            languages={AVAILABLE_LANGUAGES}
+            currentIndex={lang2Index}
+            isRecording={activeLaneRecording === 2}
+            isActivePerson={
+              config.keyboardMode === "landscape" && activePerson === 2
+            }
+            onRotate={(dir) => handleRotateLanguage(2, dir)}
+          />
+        </div>
+
+        <Visualizer
+          activePerson={activePerson}
+          isRecording={isRecording}
+          analyser={analyser}
+          barsCount={parseInt(config.visualizerBars, 10)}
+        />
+      </main>
+    </div>
+  )
+}
+
+export default TranslatorApp
