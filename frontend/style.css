@@ -1,5 +1,6 @@
 /**
  * Copyright 2026 Google LLC
+ * Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -514,8 +515,8 @@ body {
 }
 
 .chat-meta {
-  visibility: hidden; /* duration/tokens are computed but hidden on the kiosk */
-  font-size: 9px;
+  /* DialekKita: shown — carries the standard-BM normalisation of the dialect */
+  font-size: 10px;
   color: var(--red-muted);
   text-align: center;
   padding-top: 2px;
@@ -691,3 +692,64 @@ body {
   height: 320px;
 }
 
+
+/* ---------- DialekKita additions ---------- */
+.log-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0 2px;
+}
+
+.log-button {
+  font-size: 10px;
+  padding: 3px 8px;
+  background: var(--bg-black);
+  color: var(--red-bright);
+  border: 2px solid var(--border-color);
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.log-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.log-status {
+  font-size: 10px;
+  color: var(--red-bright);
+}
+
+.type-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  background: var(--bg-black);
+  border-top: 3px solid var(--border-color);
+  padding: 6px 10px 8px;
+}
+
+.type-bar-label {
+  font-size: 10px;
+  color: var(--red-bright);
+  margin-bottom: 4px;
+}
+
+.type-bar-hint {
+  opacity: 0.7;
+}
+
+.type-bar-input {
+  width: 100%;
+  font-size: 16px;
+  padding: 6px 8px;
+  border: 2px solid var(--border-color);
+  background: #fff4dc;
+  color: #000;
+  user-select: text;
+  outline: none;
+}

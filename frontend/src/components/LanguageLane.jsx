@@ -1,5 +1,6 @@
 /**
  * Copyright 2026 Google LLC
+ * Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +69,7 @@ export default function LanguageLane({
           <div className="revolver-drum" ref={drumRef}>
             {languages.map((l, i) => (
               <div key={l.code} className="revolver-item">
-                {l.name.split(" ")[0].toUpperCase()}
+                {l.label || l.name.split(" ")[0].toUpperCase()}
               </div>
             ))}
           </div>

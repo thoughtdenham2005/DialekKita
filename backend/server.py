@@ -1,4 +1,5 @@
 # Copyright 2026 Google LLC
+# Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +29,9 @@ import socket
 import ssl
 
 import threading
+import subprocess
+import shutil
+import datetime
 from collections import OrderedDict
 
 # Multilingual STT via Moonshine.
@@ -99,6 +103,92 @@ def get_stt_recognizer(language="en"):
         model_path, model_arch = get_model_for_language(language)
         _stt_recognizers[language] = Transcriber(model_path=model_path, model_arch=model_arch)
         return _stt_recognizers[language]
+
+
+# ---------------------------------------------------------------------------
+# DialekKita additions
+# ---------------------------------------------------------------------------
+# Moonshine has no Malay or Tamil models. For those languages we fall back to:
+#   STT: faster-whisper (offline Whisper, supports "ms" and "ta")
+#   TTS: espeak-ng (offline, supports "ms" and "ta"; robotic but intelligible)
+# Dialects (Kelantanese, Northern, Sabah, Sarawak) are transcribed as Malay and
+# then normalised by the dialect layer in the translation prompt.
+WHISPER_LANGS = {"ms", "ta"}
+WHISPER_MODEL_NAME = os.environ.get("DIALEKKITA_WHISPER_MODEL", "small")
+_whisper_model = None
+_whisper_lock = threading.Lock()
+
+ESPEAK_LANGS = {"ms": "ms", "ta": "ta"}
+
+# Initial prompt nudges Whisper towards Malaysian township vocabulary and
+# dialect spellings so it does not "correct" dialect words into English.
+WHISPER_PROMPT = {
+    "ms": "Paip rumah bocor. Lif rosak. Ambo, demo, gapo, bakpo. Hang, awat, pi. Sia, bah. Kamek, kitak, sik.",
+    "ta": "",
+}
+
+
+def get_whisper_model():
+    global _whisper_model
+    with _whisper_lock:
+        if _whisper_model is None:
+            from faster_whisper import WhisperModel
+            print(f"[STT] Loading faster-whisper '{WHISPER_MODEL_NAME}' (int8, CPU)...")
+            _whisper_model = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
+        return _whisper_model
+
+
+def whisper_transcribe(audio_np, language):
+    model = get_whisper_model()
+    with _whisper_lock:
+        segments, _info = model.transcribe(
+            audio_np,
+            language=language,
+            beam_size=1,
+            vad_filter=True,
+            initial_prompt=WHISPER_PROMPT.get(language) or None,
+        )
+        return " ".join(seg.text.strip() for seg in segments).strip()
+
+
+def espeak_synthesize(text, language):
+    """Return WAV bytes from espeak-ng, or raise if it is not installed."""
+    exe = shutil.which("espeak-ng") or shutil.which("espeak")
+    if not exe:
+        raise RuntimeError("espeak-ng is not installed (sudo apt-get install espeak-ng)")
+    voice = ESPEAK_LANGS.get(language, "ms")
+    result = subprocess.run(
+        [exe, "-v", voice, "-s", "150", "--stdout", text],
+        check=True, capture_output=True, timeout=30,
+    )
+    return result.stdout
+
+
+# Helpdesk request log: text only, never audio. Stored locally as JSON lines.
+REQUESTS_DIR = os.path.join(BASE_DIR, "data")
+REQUESTS_FILE = os.path.join(REQUESTS_DIR, "requests.jsonl")
+_requests_lock = threading.Lock()
+REQUEST_FIELDS = ("lane", "source_language", "target_language", "original_text", "standard_malay", "translation")
+
+
+def read_requests():
+    if not os.path.exists(REQUESTS_FILE):
+        return []
+    with open(REQUESTS_FILE, "r", encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def append_request(entry):
+    with _requests_lock:
+        os.makedirs(REQUESTS_DIR, exist_ok=True)
+        existing = read_requests()
+        record = {k: str(entry.get(k, ""))[:2000] for k in REQUEST_FIELDS}
+        record["id"] = (existing[-1]["id"] + 1) if existing else 1
+        record["status"] = "new"
+        record["created_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+        with open(REQUESTS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        return record
 
 
 PORT = 3000
@@ -192,7 +282,22 @@ class ProxyHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b'Error: Missing "text" parameter.')
             return
 
-        print(f"[TTS] Synthesizing with moonshine-voice: {text[:50]}... (lang: {lang})")
+        print(f"[TTS] Synthesizing: {text[:50]}... (lang: {lang})")
+
+        if lang in ESPEAK_LANGS:
+            try:
+                wav_bytes = espeak_synthesize(text, lang)
+                self.send_response(200)
+                self.send_header('Content-Type', 'audio/wav')
+                self.send_header('Content-Length', str(len(wav_bytes)))
+                self.end_headers()
+                self.wfile.write(wav_bytes)
+            except Exception as e:
+                traceback.print_exc()
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode('utf-8'))
+            return
 
         try:
             with _tts_lock:
@@ -243,10 +348,13 @@ class ProxyHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             # The browser sends a raw Float32Array buffer
             audio_np = np.frombuffer(raw_data, dtype=np.float32)
 
-            with _stt_lock:
-                recognizer = get_stt_recognizer(language)
-                transcript = recognizer.transcribe_without_streaming(audio_np, 16000)
-            text = " ".join([line.text for line in transcript.lines])
+            if language in WHISPER_LANGS:
+                text = whisper_transcribe(audio_np, language)
+            else:
+                with _stt_lock:
+                    recognizer = get_stt_recognizer(language)
+                    transcript = recognizer.transcribe_without_streaming(audio_np, 16000)
+                text = " ".join([line.text for line in transcript.lines])
             print(f"[STT] Transcribed: {text}")
 
             self.send_response(200)
@@ -380,7 +488,33 @@ class ProxyHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(str(e).encode('utf-8'))
 
+    def handle_requests(self):
+        try:
+            if self.command == 'GET':
+                payload = read_requests()
+            else:
+                content_length = int(self.headers.get('Content-Length', 0))
+                if content_length > 20000:
+                    raise ValueError("Request too large")
+                data = json.loads(self.rfile.read(content_length).decode('utf-8') or "{}")
+                payload = append_request(data)
+                print(f"[Helpdesk] Logged request #{payload['id']}: {payload['standard_malay'][:60]}")
+            body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            traceback.print_exc()
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode('utf-8'))
+
     def do_POST(self):
+        if self.path.startswith('/api/requests'):
+            self.handle_requests()
+            return
         if self.path.startswith('/proxy'):
             self.handle_proxy()
             return
@@ -401,6 +535,10 @@ class ProxyHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
         if self.path.startswith('/api/tts'):
             self.handle_tts()
+            return
+
+        if self.path.startswith('/api/requests'):
+            self.handle_requests()
             return
             
         if self.path.startswith('/api/volume'):

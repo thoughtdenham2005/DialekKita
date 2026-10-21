@@ -1,0 +1,3 @@
+# DialekKita extras (installed by setup.sh, without hash pinning)
+# Offline Whisper speech-to-text for Malay (and Tamil), which Moonshine lacks.
+faster-whisper>=1.1

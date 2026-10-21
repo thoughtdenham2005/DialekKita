@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copyright 2026 Google LLC
+# Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +36,7 @@ fi
 echo "[1/7] Installing OS dependencies..."
 if command -v apt-get &> /dev/null; then
     sudo apt-get update
-    sudo apt-get install -y python3-venv python3-pip ffmpeg libasound2-dev pulseaudio-utils alsa-utils
+    sudo apt-get install -y python3-venv python3-pip ffmpeg libasound2-dev pulseaudio-utils alsa-utils espeak-ng
 else
     echo "[INFO] apt-get not detected. Skipping Debian package installation."
 fi

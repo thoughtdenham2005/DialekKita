@@ -1,5 +1,6 @@
 /**
  * Copyright 2026 Google LLC
+ * Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -124,6 +125,7 @@ export async function translateText(transcribedText, config) {
   }
 
   let translationVal = ""
+  let standardMalay = "" // DialekKita: dialect normalised to standard BM
   try {
     let cleanJson = modelResponse.trim()
     if (cleanJson.startsWith("```json")) {
@@ -139,12 +141,14 @@ export async function translateText(transcribedText, config) {
 
     const parsed = JSON.parse(cleanJson)
     translationVal = parsed.translation || ""
+    standardMalay = parsed.standard_malay || ""
   } catch (e) {
     translationVal = modelResponse
   }
 
   return {
     translation: translationVal,
+    standardMalay,
     duration: requestDuration,
     tokens: data.usage?.total_tokens || 0,
   }
@@ -167,3 +171,17 @@ export function splitTextIntoSpeechChunks(text, limit = 180) {
   return chunks
 }
 
+
+// DialekKita: log an understood request (text only, never audio) to the
+// township helpdesk queue kept by the local backend (/api/requests).
+export async function logRequest(entry) {
+  const response = await fetch("/api/requests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  })
+  if (!response.ok) {
+    throw new Error(`Logging failed: ${response.status}`)
+  }
+  return response.json()
+}

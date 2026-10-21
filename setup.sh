@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copyright 2026 Google LLC
+# Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +26,14 @@ source venv/bin/activate
 
 echo "Installing requirements..."
 pip install --require-hashes --extra-index-url https://pypi.org/simple/ -r backend/requirements.txt
+
+echo "Installing DialekKita extras (Malay speech-to-text)..."
+pip install -r backend/requirements-dialekkita.txt
+
+if ! command -v espeak-ng &> /dev/null; then
+    echo "[DialekKita] espeak-ng not found — needed for Malay/Tamil voice output."
+    echo "[DialekKita] Install it with: sudo apt-get install espeak-ng   (macOS: brew install espeak-ng)"
+fi
 
 echo "========================================="
 echo "Setup complete!"

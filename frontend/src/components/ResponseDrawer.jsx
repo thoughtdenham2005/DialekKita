@@ -1,5 +1,6 @@
 /**
  * Copyright 2026 Google LLC
+ * Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +28,9 @@ export default function ResponseDrawer({
   translationText,
   metaText,
   placeholderText,
+  canLog,
+  logStatus,
+  onLogRequest,
 }) {
   // Determine if we have any data to show (or if the drawer was explicitly activated)
   const hasData = isActive || transcriptionSource !== ""
@@ -36,7 +40,7 @@ export default function ResponseDrawer({
       className={`response-drawer ${isActive ? "active" : ""}`}
       id="response-drawer"
     >
-      <div className="app-title">GEMLANG-1</div>
+      <div className="app-title">DIALEKKITA</div>
       <div
         className="drawer-handle"
         onClick={onClose}
@@ -45,7 +49,8 @@ export default function ResponseDrawer({
       <div className="chat-panel">
         {!hasData ? (
           <div className="initial-placeholder">
-            {placeholderText || "Select languages, push to talk"}
+            {placeholderText ||
+              "Pilih bahasa, tekan untuk bercakap · Hold Z to talk · T to type"}
           </div>
         ) : (
           <>
@@ -70,6 +75,18 @@ export default function ResponseDrawer({
               </div>
             </div>
             <div className="chat-meta">{metaText}</div>
+            {/* DialekKita: turn an understood request into a helpdesk ticket */}
+            <div className="log-row">
+              <button
+                className="log-button"
+                onClick={onLogRequest}
+                disabled={!canLog}
+                title="Log this request to the township helpdesk (L)"
+              >
+                LOG REQUEST [L]
+              </button>
+              {logStatus && <span className="log-status">{logStatus}</span>}
+            </div>
           </>
         )}
       </div>

@@ -1,0 +1,137 @@
+{
+  "_note": "Starter glossaries for the DialekKita dialect layer. Native speakers: please verify and extend. Each glossary pair is [dialect word, standard Bahasa Malaysia]. Each example pair is [dialect sentence, standard Bahasa Malaysia sentence].",
+  "kelantan": {
+    "name": "Kelantanese Malay (Kecek Kelate)",
+    "region": "Kelantan",
+    "style": "Spoken Kelantanese. Vowel endings often shift (-a to -o, e.g. dua -> duo, tiga -> tigo, mana -> mano). Final -ah often becomes -oh (rumah -> ghumoh). 'r' is often written 'gh'.",
+    "glossary": [
+      ["ambo", "saya"],
+      ["kawe", "saya"],
+      ["demo", "awak / kamu"],
+      ["dio", "dia"],
+      ["kito", "kita"],
+      ["ore", "orang"],
+      ["budok", "budak"],
+      ["gapo", "apa"],
+      ["mano", "mana"],
+      ["bakpo", "kenapa"],
+      ["guano", "bagaimana"],
+      ["bilo", "bila"],
+      ["nok", "nak / hendak"],
+      ["gi", "pergi"],
+      ["mari", "datang"],
+      ["tubik", "keluar"],
+      ["kecek", "cakap"],
+      ["royak", "beritahu"],
+      ["doh", "sudah"],
+      ["tok", "tidak"],
+      ["sokmo", "selalu"],
+      ["keno", "kena"],
+      ["ghumoh", "rumah"],
+      ["pitih", "duit / wang"],
+      ["ari", "hari"],
+      ["duo", "dua"],
+      ["tigo", "tiga"]
+    ],
+    "examples": [
+      ["Paip ghumoh ambo bocor doh duo ari.", "Paip rumah saya bocor sudah dua hari."],
+      ["Demo nok gi mano?", "Awak hendak pergi ke mana?"],
+      ["Bakpo lampu jale tok nyalo?", "Kenapa lampu jalan tidak menyala?"]
+    ]
+  },
+  "utara": {
+    "name": "Northern Malay (Kedah / Penang / Perlis)",
+    "region": "Kedah, Penang, Perlis",
+    "style": "Spoken northern Malay. Final -ar/-ir often written -aq/-iq (pasar -> pasaq). Final -s often -ih (habis -> habih).",
+    "glossary": [
+      ["hang", "awak / kamu"],
+      ["cek", "saya (sopan)"],
+      ["depa", "mereka"],
+      ["awat", "kenapa"],
+      ["lagu mana", "bagaimana"],
+      ["pi", "pergi"],
+      ["mai", "datang / mari"],
+      ["habaq", "beritahu"],
+      ["dok", "sedang / tinggal"],
+      ["sat", "sekejap"],
+      ["satgi", "sekejap lagi"],
+      ["pasai", "sebab"],
+      ["tak dan", "tidak sempat"],
+      ["teruih", "terus"],
+      ["habih", "habis"]
+    ],
+    "examples": [
+      ["Awat hang lambat sangat?", "Kenapa awak lambat sangat?"],
+      ["Cek nak habaq, lif blok B rosak.", "Saya hendak beritahu, lif blok B rosak."],
+      ["Satgi cek mai balik.", "Sekejap lagi saya datang semula."]
+    ]
+  },
+  "sabah": {
+    "name": "Sabah Malay",
+    "region": "Sabah",
+    "style": "Spoken Sabah Malay. The particle 'bah' adds emphasis or agreement and should be kept when writing in Sabah Malay.",
+    "glossary": [
+      ["sia", "saya"],
+      ["ko", "kau / awak"],
+      ["ndak", "tidak"],
+      ["bilang", "kata / cakap"],
+      ["suda", "sudah"],
+      ["kunun", "konon"],
+      ["bah", "(partikel penegas / setuju)"],
+      ["baru", "(partikel: jadi / lalu)"]
+    ],
+    "examples": [
+      ["Cantik bah tempat ni.", "Cantiknya tempat ini."],
+      ["Sia ndak tau mana pejabat pengurusan.", "Saya tidak tahu di mana pejabat pengurusan."],
+      ["Ok bah, sia tunggu sini.", "Baiklah, saya tunggu di sini."]
+    ]
+  },
+  "sarawak": {
+    "name": "Sarawak Malay",
+    "region": "Sarawak",
+    "style": "Spoken Sarawak Malay.",
+    "glossary": [
+      ["kamek", "saya"],
+      ["kitak", "awak / kamu"],
+      ["sidak", "mereka"],
+      ["sik", "tidak"],
+      ["maok", "mahu"],
+      ["mupok", "pergi"],
+      ["polah", "buat"],
+      ["kenak", "kenapa"],
+      ["tok", "ini"],
+      ["ya", "itu"],
+      ["kinek", "sekarang"],
+      ["lawa", "cantik"],
+      ["gilak", "sangat"],
+      ["auk", "ya"]
+    ],
+    "examples": [
+      ["Tempat tok lawa gilak.", "Tempat ini sangat cantik."],
+      ["Kamek maok mupok klinik kinek.", "Saya mahu pergi ke klinik sekarang."],
+      ["Kenak lampu ya sik idup?", "Kenapa lampu itu tidak menyala?"]
+    ]
+  },
+  "manglish": {
+    "name": "Manglish (Malaysian colloquial English)",
+    "region": "Nationwide",
+    "style": "Malaysian colloquial English mixing English with Malay words and particles such as lah, lor, meh, kan.",
+    "glossary": [
+      ["lah / lor / meh", "(partikel — tiada makna literal)"],
+      ["boss", "(panggilan sopan kepada lelaki)"],
+      ["can or not", "boleh atau tidak"],
+      ["got", "ada"],
+      ["already", "sudah"],
+      ["open the light", "buka lampu"],
+      ["tapau", "bungkus / bawa pulang"],
+      ["kejap", "sekejap"],
+      ["outstation", "ke luar kawasan / bandar"],
+      ["send", "hantar"]
+    ],
+    "examples": [
+      ["Boss, check pass kejap, after that can enter.", "Sila tunjukkan pas pelawat, kemudian boleh masuk."],
+      ["Aircon spoil already lah, can send people fix or not?", "Penghawa dingin sudah rosak, boleh hantar orang untuk baiki?"],
+      ["Got parcel for me or not?", "Ada bungkusan untuk saya?"]
+    ]
+  }
+}

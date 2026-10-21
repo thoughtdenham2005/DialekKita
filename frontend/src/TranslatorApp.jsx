@@ -1,5 +1,6 @@
 /**
  * Copyright 2026 Google LLC
+ * Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,22 +24,22 @@ import {
   transcribeAudio,
   translateText,
   splitTextIntoSpeechChunks,
+  logRequest,
 } from "./utils/api"
 import { playBlip } from "./utils/audio-blip"
+import TypeBar from "./components/TypeBar"
+import {
+  AVAILABLE_LANGUAGES,
+  DEFAULT_LANE_1,
+  DEFAULT_LANE_2,
+  buildTranslationPrompt,
+} from "./dialect/languages"
 
 // Core orchestrator for the two-person kiosk translator.
 // Flow: hold a key → record mic (useAudioRecorder) → POST /api/stt (Moonshine)
 // → LLM translation via /proxy (Gemma, strict-JSON prompt) → /api/tts playback.
 
-// Languages offered on each lane's revolver; ttsLang selects the backend voice.
-const AVAILABLE_LANGUAGES = [
-  { code: "ar", name: "Arabic", voice: "tts", ttsLang: "ar" },
-  { code: "en", name: "English", voice: "tts", ttsLang: "en" },
-  { code: "es", name: "Spanish", voice: "tts", ttsLang: "es" },
-  { code: "ja", name: "Japanese", voice: "tts", ttsLang: "ja" },
-  { code: "zh", name: "Chinese", voice: "tts", ttsLang: "zh" },
-  { code: "ko", name: "Korean", voice: "tts", ttsLang: "ko" },
-]
+// DialekKita: languages (incl. Malaysian dialects) live in ./dialect/languages.js
 
 function TranslatorApp({ config }) {
   // UI State
@@ -56,12 +57,17 @@ function TranslatorApp({ config }) {
   })
   const [metaText, setMetaText] = useState("")
 
+  // DialekKita: last completed exchange (for "log request") and type-to-text bar
+  const [lastExchange, setLastExchange] = useState(null)
+  const [logStatus, setLogStatus] = useState("")
+  const [showTypeBar, setShowTypeBar] = useState(false)
+
   // Currently-playing TTS audio element (chunked playback chain)
   const onlineAudioPlayerRef = useRef(null)
 
   // Language Lanes State
-  const [lang1Index, setLang1Index] = useState(0)
-  const [lang2Index, setLang2Index] = useState(1)
+  const [lang1Index, setLang1Index] = useState(DEFAULT_LANE_1)
+  const [lang2Index, setLang2Index] = useState(DEFAULT_LANE_2)
   const [activeLaneRecording, setActiveLaneRecording] = useState(null) // 1 or 2
 
   const { isRecording, startRecording, stopRecording, analyser, micError } =
@@ -177,13 +183,16 @@ function TranslatorApp({ config }) {
     const audioData = await stopRecording()
 
     if (audioData) {
-      processTranslation(recordedLane, audioData.base64Data)
+      processTranslation(recordedLane, { base64Data: audioData.base64Data })
     }
   }, [isRecording, activeLaneRecording, stopRecording])
 
   // Translation Pipeline
-  const processTranslation = async (lane, base64Data) => {
+  // input: { base64Data } for voice, or { text } for the type-to-text fallback
+  const processTranslation = async (lane, input) => {
     setIsDrawerOpen(true)
+    setLogStatus("")
+    setLastExchange(null)
 
     const src =
       lane === 1
@@ -196,7 +205,7 @@ function TranslatorApp({ config }) {
 
     setTranscriptionData({
       source: `${src.name} (Source)`,
-      text: "Analyzing voice input...",
+      text: input.text ? input.text : "Analyzing voice input...",
     })
     setTranslationData({
       target: `${dst.name} (Translation)`,
@@ -205,9 +214,12 @@ function TranslatorApp({ config }) {
     setMetaText("")
 
     try {
-      // 1. Transcription
-      setTranscriptionData((prev) => ({ ...prev, text: "Listening..." }))
-      const transcribedText = await transcribeAudio(base64Data, src.code)
+      // 1. Transcription (skipped when the person typed instead of speaking)
+      let transcribedText = input.text || ""
+      if (!input.text) {
+        setTranscriptionData((prev) => ({ ...prev, text: "Listening..." }))
+        transcribedText = await transcribeAudio(input.base64Data, src.sttLang)
+      }
       setTranscriptionData((prev) => ({ ...prev, text: transcribedText }))
 
       if (!transcribedText.trim()) {
@@ -222,11 +234,24 @@ function TranslatorApp({ config }) {
       const result = await translateText(transcribedText, {
         ...config,
         modelName: config.modelName,
-        systemPrompt: `You are a high-performance translator. Your task is to translate text from ${src.name.split(" ")[0]} into ${dst.name.split(" ")[0]}.\nYou MUST format your response as a valid JSON object matching this structure:\n{\n  "translation": "High-quality, natural translation into ${dst.name.split(" ")[0]}"\n}\nDo NOT return anything else except this JSON object. No Markdown block wraps (no \`\`\`json), no introductory text, no conversational text. Start directly with "{" and end directly with "}".`,
+        systemPrompt: buildTranslationPrompt(src, dst),
       })
 
       setTranslationData((prev) => ({ ...prev, text: result.translation }))
-      setMetaText(`Duration: ${result.duration}s | Tokens: ${result.tokens}`)
+      const showBM =
+        result.standardMalay && (src.dialect || dst.dialect) && dst.code !== "ms"
+      setMetaText(
+        (showBM ? `BM: ${result.standardMalay} | ` : "") +
+          `${result.duration}s | Offline`,
+      )
+      setLastExchange({
+        lane,
+        source_language: src.name,
+        target_language: dst.name,
+        original_text: transcribedText,
+        standard_malay: result.standardMalay || "",
+        translation: result.translation,
+      })
 
       if (config.enableTts) {
         playTTS(result.translation, dst.ttsLang)
@@ -249,6 +274,18 @@ function TranslatorApp({ config }) {
     const handleKeyDown = (e) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return
       const key = e.key.toLowerCase()
+
+      // DialekKita: T opens the type-to-text bar, L logs the last request
+      if (key === "t" && !isRecording) {
+        e.preventDefault()
+        setShowTypeBar(true)
+        return
+      }
+      if (key === "l" && !isRecording) {
+        e.preventDefault()
+        handleLogRequest()
+        return
+      }
 
       if (config.keyboardMode === "landscape") {
         if (key === " " || e.key === "Spacebar") {
@@ -316,7 +353,24 @@ function TranslatorApp({ config }) {
     handleRecordStart,
     handleRecordStop,
     handleRotateLanguage,
+    lastExchange,
   ])
+
+  // DialekKita: send the understood request to the local helpdesk queue
+  async function handleLogRequest() {
+    if (!lastExchange) {
+      setLogStatus("Nothing to log yet")
+      return
+    }
+    try {
+      setLogStatus("Logging...")
+      const res = await logRequest(lastExchange)
+      setLogStatus(`Logged as request #${res.id}`)
+      playBlip("ping")
+    } catch (err) {
+      setLogStatus(`Log failed: ${err.message}`)
+    }
+  }
 
   return (
     <div className="translator-envelope">
@@ -328,7 +382,28 @@ function TranslatorApp({ config }) {
         translationTarget={translationData.target}
         translationText={translationData.text}
         metaText={metaText}
+        canLog={!!lastExchange}
+        logStatus={logStatus}
+        onLogRequest={handleLogRequest}
       />
+
+      {showTypeBar && (
+        <TypeBar
+          laneName={
+            (activePerson === 1
+              ? AVAILABLE_LANGUAGES[lang1Index]
+              : AVAILABLE_LANGUAGES[lang2Index]
+            ).name
+          }
+          personLabel={activePerson}
+          onSubmit={(text) => {
+            setShowTypeBar(false)
+            processTranslation(activePerson, { text })
+          }}
+          onSwitchPerson={() => setActivePerson((p) => (p === 1 ? 2 : 1))}
+          onClose={() => setShowTypeBar(false)}
+        />
+      )}
 
       <main className="translator-workspace">
         <div className="languages-container">

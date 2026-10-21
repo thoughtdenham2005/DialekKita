@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copyright 2026 Google LLC
+# Modified by the DialekKita team (UTM), 2026: Malaysian dialect support.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,6 +35,13 @@ MODEL_NAME="gemma4-e2b"
 # the *_Google_Tensor/*_intel/*_qualcomm variants are accelerator-specific.
 HF_REPO="litert-community/gemma-4-E2B-it-litert-lm"
 MODEL_FILE="gemma-4-E2B-it.litertlm"
+
+# DialekKita: pre-download the offline Whisper model used for Malay speech-to-text,
+# so the kiosk never needs the internet at run time.
+WHISPER_MODEL="${DIALEKKITA_WHISPER_MODEL:-small}"
+echo "[DialekKita] Fetching faster-whisper '$WHISPER_MODEL' model for Malay STT..."
+python3 -c "from faster_whisper import WhisperModel; WhisperModel('$WHISPER_MODEL', device='cpu', compute_type='int8')" \
+    || echo "[DialekKita] Whisper download failed — Malay voice input will not work until it succeeds."
 
 echo "Checking if model '$MODEL_NAME' is already imported into litert-lm..."
 

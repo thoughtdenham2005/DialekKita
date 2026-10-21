@@ -23,3 +23,6 @@ server.log
 *.ogg
 *.flac
 coverage/
+
+# DialekKita: local helpdesk request log (resident data — never commit)
+backend/data/
