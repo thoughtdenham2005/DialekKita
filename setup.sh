@@ -25,7 +25,7 @@ echo "Activating virtual environment..."
 source venv/bin/activate
 
 echo "Installing requirements..."
-pip install --require-hashes --extra-index-url https://pypi.org/simple/ -r backend/requirements.txt
+pip install -r backend/requirements.txt
 
 echo "Installing DialekKita extras (Malay speech-to-text)..."
 pip install -r backend/requirements-dialekkita.txt
